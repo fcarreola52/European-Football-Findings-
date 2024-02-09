@@ -1,0 +1,325 @@
+---
+title: "Football Findings"
+output:
+  html_document:
+    df_print: paged
+  html_notebook:
+  pdf_document: default
+---
+This work was made in order to find useful insights into football. 
+
+We hope to find external and internal factors that could affect results in general, such as time, League, 
+playing as Local, etc. 
+
+That could be useful for making more informed decisions in bets.
+
+The data used in this work was scraped from https://www.espn.com/soccer/ and organized by JOSEPH MOHR. 
+It includes data for over 2300 matches and information about the top 6 European Leagues. 
+
+# Importing libraries
+
+For this work,  we are going to use different cleaning and manipulation tools and functions from different libraries. Let's import them at the beginning.
+
+
+```{r}
+library(ggplot2)
+library(janitor)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(skimr)
+library(lubridate)
+```
+
+# Importing data
+
+For this case study, we are going to use two tables.
+
+## Importing the first table
+
+This table includes data about all the matches of the most competitive 6 Leagues in Europe from 2000 to 2021. 
+```{r}
+matches <- read.csv("matches.csv")
+```
+
+## Importing the second  table
+
+This table has data about the number of games played, won and lost matches, number of points of each team, etc. For the seasons from 2000 to 2021. 
+```{r}
+summary <- read.csv("all_tables.csv")
+```
+
+# Analyzing the distribution of the first table. 
+
+We are going to start working with the table called "matches".
+
+```{r}
+ skim_without_charts(matches) 
+```
+
+## Comparing match results with time. 
+
+In this section, we analyze the relationship between the total of goals per match and the time it was taking place. 
+
+### Changing to time format  
+ 
+The first step is changing the format of the column time because it is recognized as a string. We need R to recognize it as a time format. 
+
+For this, we are going to add a new column to the data frame called "time_converted".
+
+```{r}
+matches <- mutate(matches, time_converted=hm(time..utc.))
+```
+
+### Calculating total goals per match
+
+This data frame has data about the Local and Visit scores but, it does not have the total goals per match. For this, we add a new column where we calculate the total.
+
+```{r}
+matches <- mutate(matches, total_goals = home_score + away_score)
+```
+
+### Removing matches with more than 10 goals 
+
+Matches with more than 10 goals are extremely rare and not representative, which is why they can cause bias, so it has been decided to remove them. 
+
+```{r}
+ 
+matches <- filter(matches, total_goals <=10)
+League_insights <-summarize(group_by(matches,League),count=n(), total_goals_mean=mean(total_goals))
+View(League_insights)
+```
+
+### Sun time 
+
+Our first analysis will be how the sun can affect the number of goals in a match. 
+
+##### Differentiating between sun time and non-sun time 
+
+First, we will create a new column called sun time, defining sun time as before 17:00 hours. 
+```{r}
+matches <- mutate(matches, sun_time = time_converted <= hm('17:00'))
+```
+
+### Creating a new table with insights
+
+This table will calculate some insights about the total goals in sun time and non-sun time
+
+```{r}
+sun_time_sum <-summarize(group_by(matches,sun_time), goal_sum = sum(total_goals), count=n(),
+                         goal_mean=mean(total_goals))
+knitr::kable(sun_time_sum, format = "markdown")
+```
+
+We can not  see much difference in the average total of goals. 
+
+### Visualizing distributions of goals in football. 
+
+The table did not give us too much information. Therefore, we will compare the distribution of total goals depending on the time, but first, let's see how the totals of goals are distributed in general.
+
+```{r}
+ggplot(data=matches)+
+  geom_bar(mapping=aes(x=total_goals))
+```
+
+### Visualizing if the distribution of goals depends on whether or not there is sunlight. 
+
+```{r}
+ggplot(data=matches)+
+  geom_histogram(mapping=aes(x=total_goals, y= after_stat(density)),binwidth=0.509, inherit.aes=TRUE, bins=10)+
+  facet_wrap(~sun_time)
+```
+
+We can see the distributions are very similar but slightly different. That can be due to the different sample sizes. 
+
+## Local and Visit Scores
+ In the summary of the first chart, we can see that the average local and visit scores were different. 
+ 
+The average home score is 1.57 goals meanwhile the visit one is 1.20 goals. Let's see how scores are distributed depending on this factor.
+### Visualizing Home score and Visit Score rate
+```{r}
+par(mfrow = c(1, 2))
+barplot(prop.table(table(matches$home_score)), main= "Home score rate", ylab= "% of  matches", xlab = "goals")
+barplot(prop.table(table(matches$away_score)), main= "Visit score rate", ylab= "% of matches", xlab= "goals")
+par(mfrow = c(1, 1))
+```
+
+We can appreciate a clear difference, being way more usual with a 0 score for visits in general. 
+
+## League comparation total goals 
+
+Let's make a visual that shows the distribution of the total goals for each League.
+
+### Total goals rate in each European League (2000-2021)
+```{r}
+ggplot(data = matches)+
+  geom_histogram(mapping = aes(x = total_goals, y= after_stat(density)))+
+  facet_wrap(~League)
+```
+
+We can see some differences between them. 
+
+### Sample sizes and the average total goals per match for each League
+
+```{r}
+League <- arrange(summarize(group_by(matches,League), count = n(), total_goal_mean = mean(total_goals)), total_goal_mean)
+knitr::kable(League, format = "markdown")
+```
+ 
+In both the visual and table, we can appreciate that dutch Eredivisie has fewer matches with 0 or 1 goal than the other Leagues, plus the average total goals is higher.  But the sample size is considerably smaller, so we can not take these results as conclusive, but it may be a good starting point for further investigations. 
+
+
+# Analyzing the second table. 
+
+Now we will use the table "summary" to get insights. First 
+let's analyze its distribution. 
+
+```{r}
+skim_without_charts(summary)
+```
+## Champions insights
+Let's create a new chart that gives us insights into the champions of all the Leagues. 
+
+First, we have to filter the table to only give us information about teams in the 1st  position. Let's remove the data for the years 2000 and 2019 since they include incomplete data.   
+
+### Filtering champions 
+```{r}
+champions <- arrange(filter(summary, Place==1, Year>2000, Year != 2019), P, GP)
+```
+
+Given that we can create another table with the most important insights. 
+
+### Summary stats of eache league
+This table will show how different the stats of the champions of each League are within the period from 2000 to 2021. 
+```{r}
+
+insights_champions <- summarize(group_by(champions,League),count=n(), total_points_mean=mean(P), game_played_mean=mean(GP), 
+                                Win_mean=mean(W), Lost_mean=mean(L), Draw_mean=mean(D), max(P), min(P), number_champions=n_distinct(Team))
+knitr::kable(insights_champions, format = "markdown")
+```
+
+
+## Most winning teams in Europe
+
+To see which teams have more titles, we can create a visualization. But first let's filter our table "champions" ton only contain info about teams with 3 or more titles. 
+```{r}
+insights_champions_team <- summarize(group_by(champions, Team, League),count=n(), total_points_mean=mean(P), game_played_mean=mean(GP), 
+                                Win_mean=mean(W), Lost_mean=mean(L), Draw_mean=mean(D), max(P), min(P))
+
+insights_champions_winners <- filter(insights_champions_team, count >= 3)
+```
+
+Now let's create a viz showing this. 
+
+### Showing the most winning teams. 
+
+```{r}
+ggplot(data=insights_champions_winners)+
+  geom_bar(mapping=aes(x = reorder(Team, -count), y = count, fill = League), stat = "identity", position="dodge")+
+  labs(
+    x = "Teams",
+    y = "Championships",
+    title = "Most winning teams in Europe (2001-2021)"
+    )
+```
+
+We can appreciate that Bayern Munich is the most winning team in Europe from 2000 to 2021. 
+
+
+## Most dominated Leagues
+
+Let's create a Viz which tells us how many different teams have won their League in the period (2000-2021)
+```{r}
+ggplot(data=insights_champions)+
+  geom_bar(mapping=aes(x = reorder(League, -number_champions), y = number_champions, fill = League), stat = "identity", position="dodge")+
+  labs(
+    x = "League",
+    y = "different champions",
+    title = "Total of different champions in each League (2001-2021)"
+  )+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+We can see that Italian Serie A is the most-dominated League, having only three different champions in more than 20 years. 
+
+## Rate of championships
+
+First, let's create a table for each League containing all the champions.
+```{r}
+Dutch <- (filter(insights_champions_team, League == "Dutch Eredivisie"))
+Spanish <- (filter(insights_champions_team, League == "Spanish La Liga"))
+English <- (filter(insights_champions_team, League == "English Premier League"))
+German <- (filter(insights_champions_team, League == "German Bundesliga"))
+Italian <- (filter(insights_champions_team, League == "Italian Serie A"))
+French <- (filter(insights_champions_team, League == "French Ligue 1"))
+```
+
+### Creating pie charts to see the rates. 
+
+These pie charts are showing the rate of all the championships in each League (2000-2021)
+```{r}
+par(mfrow = c(2, 3))
+pie(Dutch$count,Dutch$Team, main= "Championship rate Dutch Eredivise", col = rainbow(length(Dutch$Team)))
+pie(Spanish$count,Spanish$Team, main= "Championship rate Spain", col = rainbow(length(Spanish$Team)))
+pie(English$count,English$Team, main= "Championship rate English", col = rainbow(length(English$Team)))
+pie(German$count,German$Team, main= "Championship rate German", col = rainbow(length(Italian$Team)))
+pie(Italian$count,Italian$Team, main= "Championship rate Italian", col = rainbow(length(French$Team)))
+pie(French$count,French$Team, main= "Championship rate French", col = rainbow(length(French$Team)))
+par(mfrow = c(1, 1))
+```
+
+
+## Difficulty 
+
+Let's see how difficult is to become a champion in each League. For this,
+we will measure it with the win rate (win games/ total games). In general, the higher the necessary win rate is, the harder to get a championship. 
+
+For that, we have to create a new column in the table "champions" calculating the  "win_rate".
+```{r}
+champions <- mutate(champions, win_rate= W/GP) 
+```
+
+Taking the data from the previous table let's create a new one with the main insights about the win rate for each League. 
+
+### Win Rate
+```{r}
+insights_wr <- arrange(summarize(group_by(champions, League), WR_mean=mean(win_rate), WR_max=max(win_rate), WR_min=min(win_rate)), WR_mean)
+
+knitr::kable(insights_wr, format = "markdown")
+
+
+```
+
+Let's see the difference in the average champion's win rate.
+
+```{r}
+ggplot(data=insights_wr)+
+  geom_bar(mapping=aes(x = reorder(League, -WR_mean), y = WR_mean, fill = League), stat = "identity", position="dodge")+
+  labs(
+    x = "League",
+    y = " Win rate ",
+    title = "Champion's Average Win rate "
+  )+
+  theme(axis.text.x = element_text(angle = 90))  
+```
+
+Let's see the historical minimum Win Rate needed to become a champion in each League. 
+
+```{r}
+ggplot(data=insights_wr)+
+  geom_bar(mapping=aes(x = reorder(League, -WR_min), y = WR_min, fill = League), stat = "identity", position="dodge")+
+  labs(
+    x = "League",
+    y = "Win rate ",
+    title = "Champion's Historical min win rate  (2000-2021)"
+  )+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Conclusions
+
+We can conclude that external factors such as sunlight may not affect the matches as it might be thought, at least in Europe, where the temperatures are not as extreme as in other continents. That could be a reason why differences in scores are not visible in the matches that take place in this Region. Another explanation could be that temperatures and weather affect both teams equally, so the performance changes in defensive and offensive players, so the amount of goals scored tends to be the same. 
+
+The difference in scores between locals and visitants is much more visible. It is more usual that the Local team scores more goals than the visitant. 
+
+We can see a lot of differences between the total of goals and championships distribution within Leagues. For example, Italian Serie A is the League with fewer different champions having only 3, but the most dominated League is the German Bundesliga, being highly dominated by Bayern Munich. 
